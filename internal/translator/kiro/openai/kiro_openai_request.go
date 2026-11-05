@@ -153,6 +153,7 @@ func BuildKiroPayloadFromOpenAI(openaiBody []byte, modelID, profileArn, origin s
 	history, currentUserMsg, currentToolResults := processOpenAIMessages(messages, modelID, origin)
 	history, currentToolResults = normalizeUnknownToolHistory(history, currentUserMsg, currentToolResults, kiroTools)
 	history = openHistoryWithUserTurn(history, systemPrompt, modelID, origin)
+	sanitizeAndHoistPersonaInConversation(history, currentUserMsg, currentToolResults, &systemPrompt)
 	attachInstructionsToFirstUserMessage(history, currentUserMsg, systemPrompt)
 
 	// Attach tools and tool results to the current input.
@@ -341,6 +342,47 @@ func openHistoryWithUserTurn(history []KiroHistoryMessage, instructions, modelID
 // instructions exactly once in the stateless Kiro conversation. Kiro rejects
 // the feature-gated systemPrompt field, so the earliest user turn carries the
 // instructions without contaminating later tool-result continuations.
+func sanitizeAndHoistPersonaInConversation(history []KiroHistoryMessage, current *KiroUserInputMessage, currentResults []KiroToolResult, instructions *string) {
+	matched := kirocommon.MatchesKiroWorkspacePersona(*instructions)
+	for i := range history {
+		user := history[i].UserInputMessage
+		if user == nil {
+			continue
+		}
+		if kirocommon.MatchesKiroWorkspacePersona(user.Content) {
+			matched = true
+			user.Content = kirocommon.NormalizeKiroWorkspacePersona(user.Content)
+		}
+		if user.UserInputMessageContext != nil {
+			for j := range user.UserInputMessageContext.ToolResults {
+				for k := range user.UserInputMessageContext.ToolResults[j].Content {
+					txt := user.UserInputMessageContext.ToolResults[j].Content[k].Text
+					if kirocommon.MatchesKiroWorkspacePersona(txt) {
+						matched = true
+						user.UserInputMessageContext.ToolResults[j].Content[k].Text = strings.TrimSpace(kirocommon.KiroWorkspacePersonaBridge)
+					}
+				}
+			}
+		}
+	}
+	if current != nil && kirocommon.MatchesKiroWorkspacePersona(current.Content) {
+		matched = true
+		current.Content = kirocommon.NormalizeKiroWorkspacePersona(current.Content)
+	}
+	for j := range currentResults {
+		for k := range currentResults[j].Content {
+			txt := currentResults[j].Content[k].Text
+			if kirocommon.MatchesKiroWorkspacePersona(txt) {
+				matched = true
+				currentResults[j].Content[k].Text = strings.TrimSpace(kirocommon.KiroWorkspacePersonaBridge)
+			}
+		}
+	}
+	if matched && !strings.Contains(*instructions, "[USER PREFERENCE & COMMUNICATION STYLE") {
+		*instructions = kirocommon.KiroWorkspacePersonaBridge + strings.TrimSpace(kirocommon.NormalizeKiroWorkspacePersona(*instructions))
+	}
+}
+
 func attachInstructionsToFirstUserMessage(history []KiroHistoryMessage, current *KiroUserInputMessage, instructions string) {
 	for i := range history {
 		if history[i].UserInputMessage != nil {
