@@ -355,10 +355,6 @@ func openHistoryWithUserTurn(history []KiroHistoryMessage, instructions, modelID
 // anchoring them to the earliest user turn, tool-result continuations remain
 // clean and do not repeatedly trigger instruction-driven behavior.
 func attachInstructionsToFirstUserMessage(history []KiroHistoryMessage, current *KiroUserInputMessage, instructions string) {
-	if instructions == "" {
-		return
-	}
-
 	for i := range history {
 		if history[i].UserInputMessage != nil {
 			history[i].UserInputMessage.Content = kirocommon.PrependInstructions(history[i].UserInputMessage.Content, instructions)

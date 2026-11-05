@@ -342,10 +342,6 @@ func openHistoryWithUserTurn(history []KiroHistoryMessage, instructions, modelID
 // the feature-gated systemPrompt field, so the earliest user turn carries the
 // instructions without contaminating later tool-result continuations.
 func attachInstructionsToFirstUserMessage(history []KiroHistoryMessage, current *KiroUserInputMessage, instructions string) {
-	if instructions == "" {
-		return
-	}
-
 	for i := range history {
 		if history[i].UserInputMessage != nil {
 			history[i].UserInputMessage.Content = kirocommon.PrependInstructions(history[i].UserInputMessage.Content, instructions)
