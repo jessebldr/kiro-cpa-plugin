@@ -3,11 +3,14 @@ package executor
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jessebldr/kiro-cpa-plugin/internal/modelcapabilities"
 	kiroclaude "github.com/jessebldr/kiro-cpa-plugin/internal/translator/kiro/claude"
@@ -247,4 +250,212 @@ func estimateKiroTokens(value string) int64 {
 		return 1
 	}
 	return int64(count)
+}
+
+const (
+	kiroPrefixCacheTTL        = 10 * time.Minute
+	kiroPrefixCacheMaxEntries = 4096
+)
+
+type kiroPrefixCacheEntry struct {
+	tokens    int64
+	updatedAt time.Time
+}
+
+var (
+	kiroPrefixCacheMu      sync.Mutex
+	kiroPrefixCacheEntries = map[string]kiroPrefixCacheEntry{}
+)
+
+func resetKiroPrefixCacheForTest() {
+	kiroPrefixCacheMu.Lock()
+	clear(kiroPrefixCacheEntries)
+	kiroPrefixCacheMu.Unlock()
+}
+
+func kiroPrefixCacheLookup(key string, now time.Time) (int64, bool) {
+	kiroPrefixCacheMu.Lock()
+	defer kiroPrefixCacheMu.Unlock()
+	entry, ok := kiroPrefixCacheEntries[key]
+	if !ok {
+		return 0, false
+	}
+	if now.Sub(entry.updatedAt) > kiroPrefixCacheTTL {
+		delete(kiroPrefixCacheEntries, key)
+		return 0, false
+	}
+	entry.updatedAt = now
+	kiroPrefixCacheEntries[key] = entry
+	return entry.tokens, entry.tokens > 0
+}
+
+func kiroPrefixCacheStore(key string, tokens int64, now time.Time) {
+	if tokens <= 0 || key == "" {
+		return
+	}
+	kiroPrefixCacheMu.Lock()
+	defer kiroPrefixCacheMu.Unlock()
+	if len(kiroPrefixCacheEntries) >= kiroPrefixCacheMaxEntries {
+		var oldestKey string
+		var oldestTime time.Time
+		for k, v := range kiroPrefixCacheEntries {
+			if now.Sub(v.updatedAt) > kiroPrefixCacheTTL {
+				delete(kiroPrefixCacheEntries, k)
+				continue
+			}
+			if oldestKey == "" || v.updatedAt.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = v.updatedAt
+			}
+		}
+		if len(kiroPrefixCacheEntries) >= kiroPrefixCacheMaxEntries && oldestKey != "" {
+			delete(kiroPrefixCacheEntries, oldestKey)
+		}
+	}
+	kiroPrefixCacheEntries[key] = kiroPrefixCacheEntry{tokens: tokens, updatedAt: now}
+}
+
+// applyKiroPrefixCacheUsage splits Kiro's total input token count into cached
+// prefix tokens and uncached new-turn tokens when Kiro omits explicit cache
+// counters in metadataEvent (its runtime streams emit only meteringEvent and
+// contextUsageEvent). For multi-turn conversations it matches the longest
+// non-assistant message prefix against prior turns on the same credential and
+// model, falling back to subtracting the newly appended post-assistant turn
+// when resuming a conversation after a cold start.
+func applyKiroPrefixCacheUsage(detail usage.Detail, authID, model string, requestBody []byte) usage.Detail {
+	if detail.InputTokens <= 0 || len(bytes.TrimSpace(requestBody)) == 0 || !gjson.ValidBytes(requestBody) {
+		return detail
+	}
+	if detail.CacheReadTokens > 0 || detail.CachedTokens > 0 || detail.CacheCreationTokens > 0 {
+		return detail
+	}
+
+	root := gjson.ParseBytes(requestBody)
+	messages := root.Get("messages").Array()
+	if len(messages) == 0 {
+		return detail
+	}
+
+	sysToolsHasher := sha256.New()
+	hasSystemOrTools := false
+	if sys := root.Get("system"); sys.Exists() && sys.Type != gjson.Null {
+		if raw := strings.TrimSpace(sys.Raw); raw != "" && raw != `""` && raw != "[]" {
+			hasSystemOrTools = true
+			sysToolsHasher.Write([]byte("sys:"))
+			sysToolsHasher.Write([]byte(raw))
+			sysToolsHasher.Write([]byte{0})
+		}
+	}
+	convStart := 0
+	for convStart < len(messages) {
+		role := messages[convStart].Get("role").String()
+		if role != "system" && role != "developer" {
+			break
+		}
+		hasSystemOrTools = true
+		sysToolsHasher.Write([]byte("msg-sys:"))
+		sysToolsHasher.Write([]byte(strings.TrimSpace(messages[convStart].Get("content").Raw)))
+		sysToolsHasher.Write([]byte{0})
+		convStart++
+	}
+	if tools := root.Get("tools"); tools.IsArray() && len(tools.Array()) > 0 {
+		hasSystemOrTools = true
+		sysToolsHasher.Write([]byte("tools:"))
+		sysToolsHasher.Write([]byte(strings.TrimSpace(tools.Raw)))
+		sysToolsHasher.Write([]byte{0})
+	}
+
+	convMessages := messages[convStart:]
+	if len(convMessages) == 0 {
+		return detail
+	}
+
+	scopePrefix := strings.TrimSpace(authID) + "\x00" + strings.ToLower(strings.TrimSpace(model)) + "\x00" + hex.EncodeToString(sysToolsHasher.Sum(nil))
+	systemToolsKey := "sys:" + scopePrefix
+
+	turnHasher := sha256.New()
+	turnHasher.Write([]byte(scopePrefix))
+	lastAssistantIdx := -1
+	var assistantCheckpointKeys []string
+	for i, msg := range convMessages {
+		role := msg.Get("role").String()
+		if role == "assistant" {
+			if i < len(convMessages)-1 {
+				lastAssistantIdx = i
+				assistantCheckpointKeys = append(assistantCheckpointKeys, "turn:"+hex.EncodeToString(turnHasher.Sum(nil)))
+			}
+			continue
+		}
+		turnHasher.Write([]byte{0})
+		turnHasher.Write([]byte(role))
+		turnHasher.Write([]byte{0})
+		turnHasher.Write([]byte(strings.TrimSpace(msg.Get("tool_call_id").String())))
+		turnHasher.Write([]byte{0})
+		turnHasher.Write([]byte(strings.TrimSpace(msg.Get("content").Raw)))
+	}
+	finalTurnKey := "turn:" + hex.EncodeToString(turnHasher.Sum(nil))
+
+	newTurnMessages := convMessages
+	if lastAssistantIdx >= 0 {
+		newTurnMessages = convMessages[lastAssistantIdx+1:]
+	}
+	newTurnTokens := estimateMessagesTokens(newTurnMessages)
+
+	now := time.Now()
+	var cachedTokens int64
+	if lastAssistantIdx >= 0 {
+		for i := len(assistantCheckpointKeys) - 1; i >= 0; i-- {
+			if tokens, ok := kiroPrefixCacheLookup(assistantCheckpointKeys[i], now); ok {
+				cachedTokens = tokens
+				break
+			}
+		}
+		if cachedTokens == 0 && detail.InputTokens > newTurnTokens {
+			cachedTokens = detail.InputTokens - newTurnTokens
+		}
+	} else if hasSystemOrTools {
+		if tokens, ok := kiroPrefixCacheLookup(systemToolsKey, now); ok {
+			cachedTokens = tokens
+		}
+	}
+
+	if cachedTokens > 0 {
+		maxCached := detail.InputTokens
+		if newTurnTokens > 0 && detail.InputTokens > newTurnTokens && cachedTokens > detail.InputTokens-newTurnTokens {
+			maxCached = detail.InputTokens - newTurnTokens
+		}
+		if cachedTokens > maxCached {
+			cachedTokens = maxCached
+		}
+		if cachedTokens > 0 {
+			detail.CachedTokens = cachedTokens
+			detail.CacheReadTokens = cachedTokens
+		}
+	}
+
+	kiroPrefixCacheStore(finalTurnKey, detail.InputTokens+detail.OutputTokens, now)
+	if lastAssistantIdx == -1 && hasSystemOrTools && detail.InputTokens > newTurnTokens {
+		kiroPrefixCacheStore(systemToolsKey, detail.InputTokens-newTurnTokens, now)
+	}
+	return detail
+}
+
+func estimateMessagesTokens(messages []gjson.Result) int64 {
+	if len(messages) == 0 {
+		return 0
+	}
+	segments := make([]string, 0, len(messages)*2)
+	for _, msg := range messages {
+		appendCountString(&segments, msg.Get("role").String())
+		appendCountString(&segments, msg.Get("tool_call_id").String())
+		collectCountContent(msg.Get("content"), &segments)
+		if toolCalls := msg.Get("tool_calls"); toolCalls.IsArray() {
+			for _, tc := range toolCalls.Array() {
+				appendCountString(&segments, tc.Get("id").String())
+				appendCountString(&segments, tc.Get("function.name").String())
+				appendCountString(&segments, tc.Get("function.arguments").String())
+			}
+		}
+	}
+	return estimateKiroTokens(strings.Join(segments, "\n"))
 }

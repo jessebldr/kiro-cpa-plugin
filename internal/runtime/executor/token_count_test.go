@@ -270,3 +270,89 @@ func TestCacheTokenUsagePropagatesToClaudeAndOpenAIFormats(t *testing.T) {
 		t.Fatal("missing OpenAI usage chunk")
 	}
 }
+
+func TestMultiStepContextUsageDerivesCachedTokensFromPrefixHistory(t *testing.T) {
+	resetKiroPrefixCacheForTest()
+	t.Cleanup(resetKiroPrefixCacheForTest)
+
+	// Step 1: initial turn with system prompt, tools, and user question.
+	// Kiro reports 5.0% of 1,000,000 = 50,000 total tokens.
+	step1Req := []byte(`{
+		"model": "claude-opus-4.6",
+		"messages": [
+			{"role": "system", "content": "You are a competitive intelligence agent."},
+			{"role": "user", "content": "Analyze racingportrait.com ads."}
+		],
+		"tools": [
+			{"type": "function", "function": {"name": "search_ads", "description": "Search active ads", "parameters": {"type": "object", "properties": {"domain": {"type": "string"}}}}}
+		]
+	}`)
+	step1Body := kiroEventStream(
+		kiroEvent("toolUseEvent", `{"toolUseEvent":{"toolUseId":"call_1","name":"search_ads","input":"{\"domain\":\"racingportrait.com\"}","stop":true}}`),
+		statusEvent("contextUsageEvent", `{"contextUsagePercentage":5.0}`),
+	)
+	ctx := withStreamTraceLabel(context.Background(), "cred-opus.json")
+	out1 := make(chan cliproxyexecutor.StreamChunk, 64)
+	if !(&KiroExecutor{}).streamToChannel(ctx, bytes.NewReader(step1Body), out1, sdktranslator.FormatOpenAI, "claude-opus-4.6", step1Req, step1Req, 1000000) {
+		t.Fatal("step 1 stream failed")
+	}
+	close(out1)
+
+	// Step 2: client replays step 1 history + assistant tool_calls + new tool result.
+	// Kiro reports 5.3% of 1,000,000 = 53,000 total tokens.
+	step2Req := []byte(`{
+		"model": "claude-opus-4.6",
+		"messages": [
+			{"role": "system", "content": "You are a competitive intelligence agent."},
+			{"role": "user", "content": "Analyze racingportrait.com ads."},
+			{"role": "assistant", "content": null, "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "search_ads", "arguments": "{\"domain\":\"racingportrait.com\"}"}}]},
+			{"role": "tool", "tool_call_id": "call_1", "content": "Found 24 active ads on Meta Ads Library."}
+		],
+		"tools": [
+			{"type": "function", "function": {"name": "search_ads", "description": "Search active ads", "parameters": {"type": "object", "properties": {"domain": {"type": "string"}}}}}
+		]
+	}`)
+	step2Body := kiroEventStream(
+		statusEvent("assistantResponseEvent", `{"content":"Here is the summary of 24 active ads."}`),
+		statusEvent("contextUsageEvent", `{"contextUsagePercentage":5.3}`),
+	)
+	out2 := make(chan cliproxyexecutor.StreamChunk, 64)
+	if !(&KiroExecutor{}).streamToChannel(ctx, bytes.NewReader(step2Body), out2, sdktranslator.FormatOpenAI, "claude-opus-4.6", step2Req, step2Req, 1000000) {
+		t.Fatal("step 2 stream failed")
+	}
+	close(out2)
+
+	var promptTokens, cachedTokens int64
+	for chunk := range out2 {
+		parsed := gjson.ParseBytes(bytes.TrimSpace(chunk.Payload))
+		if !parsed.Get("usage").Exists() {
+			continue
+		}
+		promptTokens = parsed.Get("usage.prompt_tokens").Int()
+		cachedTokens = parsed.Get("usage.prompt_tokens_details.cached_tokens").Int()
+	}
+	if cachedTokens != 50000 {
+		t.Fatalf("step 2 cached_tokens = %d, want 50000 (total tokens from step 1)", cachedTokens)
+	}
+	if promptTokens <= cachedTokens {
+		t.Fatalf("step 2 prompt_tokens = %d, want > cached_tokens (%d)", promptTokens, cachedTokens)
+	}
+
+	// Step 3 (cold start simulation): clear in-memory cache and send a multi-turn request.
+	resetKiroPrefixCacheForTest()
+	out3 := make(chan cliproxyexecutor.StreamChunk, 64)
+	if !(&KiroExecutor{}).streamToChannel(ctx, bytes.NewReader(step2Body), out3, sdktranslator.FormatOpenAI, "claude-opus-4.6", step2Req, step2Req, 1000000) {
+		t.Fatal("cold-start multi-turn stream failed")
+	}
+	close(out3)
+	var coldCached int64
+	for chunk := range out3 {
+		parsed := gjson.ParseBytes(bytes.TrimSpace(chunk.Payload))
+		if parsed.Get("usage").Exists() {
+			coldCached = parsed.Get("usage.prompt_tokens_details.cached_tokens").Int()
+		}
+	}
+	if coldCached <= 49000 || coldCached >= 53000 {
+		t.Fatalf("cold-start multi-turn cached_tokens = %d, want between 49000 and 53000", coldCached)
+	}
+}

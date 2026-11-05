@@ -935,14 +935,15 @@ func (e *KiroExecutor) executeWithRetry(ctx context.Context, auth *cliproxyauth.
 		}
 
 		appendAPIResponseChunk(ctx, e.cfg, []byte(content))
+		requestedModel := payloadRequestedModel(opts, req.Model)
 		usageInfo = completeKiroUsage(usageInfo, contextPercentage, kiroContextWindow(auth, kiroModelID), content, reasoning, toolUses)
+		usageInfo = applyKiroPrefixCacheUsage(usageInfo, authID, requestedModel, body)
 
 		// Build response in Claude format for Kiro translator
 		// stopReason is extracted from upstream response by parseEventStream
 		for i := range toolUses {
 			toolUses[i].Name = aliases.original(toolUses[i].Name)
 		}
-		requestedModel := payloadRequestedModel(opts, req.Model)
 		kiroResponse := kiroclaude.BuildClaudeResponse(content, reasoning, toolUses, requestedModel, usageInfo, stopReason)
 		out := sdktranslator.TranslateNonStream(ctx, to, from, requestedModel, bytes.Clone(opts.OriginalRequest), body, kiroResponse, nil)
 		resp = cliproxyexecutor.Response{Payload: []byte(out)}
@@ -3057,6 +3058,7 @@ func (e *KiroExecutor) streamToChannelWithAliases(ctx context.Context, body io.R
 	}
 
 	totalUsage = completeKiroUsageFromText(totalUsage, upstreamContextPercentage, contextWindow, outputForUsage.String())
+	totalUsage = applyKiroPrefixCacheUsage(totalUsage, streamTraceLabel(ctx), model, claudeBody)
 
 	// Log upstream usage information if received
 	if hasUpstreamUsage {
