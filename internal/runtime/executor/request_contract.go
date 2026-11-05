@@ -170,23 +170,25 @@ func truncateUTF8(value string, maxBytes int) string {
 	return value
 }
 
-// normalizeClaudeSystemMessages turns inline system messages into user text at
-// their own position. Kiro has no system role, and its prompt cache matches the
-// request prefix: hoisting them into the system prompt, which leads the first
-// user turn, changed the oldest history entry whenever a client appended one
-// (Claude Code does so on every turn), so no turn reused the cache.
+// normalizeClaudeSystemMessages hoists inline system messages into the
+// top-level system prompt so workspace instructions (such as agents.md) retain
+// full system authority at the start of the conversation. When a request ends
+// with an inline system message immediately after an assistant turn, that final
+// message is kept as user text so the request still ends with a user turn.
 func normalizeClaudeSystemMessages(body []byte) ([]byte, error) {
 	messages := gjson.GetBytes(body, "messages")
 	if !messages.Exists() || !messages.IsArray() {
 		return body, nil
 	}
 
-	if _, err := claudeSystemTextParts(gjson.GetBytes(body, "system")); err != nil {
+	systemParts, err := claudeSystemTextParts(gjson.GetBytes(body, "system"))
+	if err != nil {
 		return nil, err
 	}
-	kept := make([]string, 0, len(messages.Array()))
+	arr := messages.Array()
+	kept := make([]string, 0, len(arr))
 	changed := false
-	for _, message := range messages.Array() {
+	for i, message := range arr {
 		if message.Get("role").String() != "system" {
 			kept = append(kept, message.Raw)
 			continue
@@ -199,30 +201,35 @@ func normalizeClaudeSystemMessages(body []byte) ([]byte, error) {
 		if len(parts) == 0 {
 			continue
 		}
-		blocks := make([]map[string]string, 0, len(parts))
-		for _, part := range parts {
-			blocks = append(blocks, map[string]string{"type": "text", "text": part})
+		if i == len(arr)-1 && len(kept) > 0 && gjson.Get(kept[len(kept)-1], "role").String() == "assistant" {
+			blocks := make([]map[string]string, 0, len(parts))
+			for _, part := range parts {
+				blocks = append(blocks, map[string]string{"type": "text", "text": part})
+			}
+			raw, err := json.Marshal(map[string]any{"role": "user", "content": blocks})
+			if err != nil {
+				return nil, fmt.Errorf("normalize Kiro system message: %w", err)
+			}
+			kept = append(kept, string(raw))
+			continue
 		}
-		raw, err := json.Marshal(map[string]any{"role": "user", "content": blocks})
-		if err != nil {
-			return nil, fmt.Errorf("normalize Kiro system message: %w", err)
-		}
-		kept = append(kept, string(raw))
+		systemParts = append(systemParts, parts...)
 	}
 	if !changed {
 		return body, nil
 	}
 
-	// Coalesce with neighbouring user turns, so a system message between a
-	// tool_use and its tool_result still leaves the result next to its call.
-	merged := kirocommon.MergeAdjacentMessages(gjson.Parse("[" + strings.Join(kept, ",") + "]").Array())
-	raws := make([]string, 0, len(merged))
-	for _, message := range merged {
-		raws = append(raws, message.Raw)
-	}
-	normalized, err := sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(raws, ",")+"]"))
+	normalized, err := sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(kept, ",")+"]"))
 	if err != nil {
 		return nil, fmt.Errorf("normalize Kiro conversation messages: %w", err)
+	}
+	if len(systemParts) == 0 {
+		normalized, err = sjson.DeleteBytes(normalized, "system")
+	} else {
+		normalized, err = sjson.SetBytes(normalized, "system", strings.Join(systemParts, "\n\n"))
+	}
+	if err != nil {
+		return nil, fmt.Errorf("normalize Kiro system prompt: %w", err)
 	}
 	return normalized, nil
 }

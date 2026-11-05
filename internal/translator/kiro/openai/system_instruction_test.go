@@ -148,11 +148,11 @@ func TestFoldingInstructionsKeepsTheUserTurn(t *testing.T) {
 	}
 }
 
-// Kiro caches the request prefix, from history[0] onward. A system message the
-// client inserts mid-conversation must stay at its own position: hoisting it
-// in front of the first user turn changed history[0] on the next request and
-// made every later turn a cache miss.
-func TestInlineSystemMessageKeepsEarlierKiroHistory(t *testing.T) {
+// System and developer messages at any position are hoisted to the opening
+// system instructions so workspace files (such as agents.md) and persona
+// directives carry full system authority instead of being treated as mid-turn
+// user text.
+func TestLaterSystemAndDeveloperMessagesAreHoistedToOpeningInstructions(t *testing.T) {
 	build := func(body string) KiroPayload {
 		raw, _ := BuildKiroPayloadFromOpenAI([]byte(body), "claude-opus-5", "profile", "AI_EDITOR", modelcapabilities.Capability{}, "")
 		var payload KiroPayload
@@ -161,15 +161,13 @@ func TestInlineSystemMessageKeepsEarlierKiroHistory(t *testing.T) {
 		}
 		return payload
 	}
-	turn1 := build(`{"messages":[{"role":"system","content":"Base."},{"role":"user","content":"q1"},{"role":"assistant","content":"a1"},{"role":"user","content":"q2"}]}`)
-	turn2 := build(`{"messages":[{"role":"system","content":"Base."},{"role":"user","content":"q1"},{"role":"assistant","content":"a1"},{"role":"user","content":"q2"},{"role":"assistant","content":"a2"},{"role":"developer","content":[{"type":"text","text":"Reminder:"},{"type":"text","text":"date changed."}]},{"role":"user","content":"q3"}]}`)
+	turn := build(`{"messages":[{"role":"system","content":"Base."},{"role":"user","content":"q1"},{"role":"assistant","content":"a1"},{"role":"developer","content":[{"type":"text","text":"Agents.md:"},{"type":"text","text":"follow persona."}]},{"role":"user","content":"q2"}]}`)
 
-	first := turn1.ConversationState.History[0].UserInputMessage.Content
-	second := turn2.ConversationState.History[0].UserInputMessage.Content
-	if first != "Base.\n\nq1" || second != first {
-		t.Errorf("history[0] changed: %q -> %q", first, second)
+	first := turn.ConversationState.History[0].UserInputMessage.Content
+	if first != "Base.\nAgents.md:\nfollow persona.\n\nq1" {
+		t.Errorf("history[0] = %q, want hoisted system+developer instructions", first)
 	}
-	if got := turn2.ConversationState.CurrentMessage.UserInputMessage.Content; got != "Reminder:\ndate changed.\nq3" {
-		t.Errorf("current content = %q", got)
+	if got := turn.ConversationState.CurrentMessage.UserInputMessage.Content; got != "q2" {
+		t.Errorf("current content = %q, want q2", got)
 	}
 }

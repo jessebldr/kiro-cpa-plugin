@@ -346,17 +346,17 @@ func applyKiroPrefixCacheUsage(detail usage.Detail, authID, model string, reques
 			sysToolsHasher.Write([]byte{0})
 		}
 	}
-	convStart := 0
-	for convStart < len(messages) {
-		role := messages[convStart].Get("role").String()
-		if role != "system" && role != "developer" {
-			break
+	var convMessages []gjson.Result
+	for _, msg := range messages {
+		role := msg.Get("role").String()
+		if role == "system" || role == "developer" {
+			hasSystemOrTools = true
+			sysToolsHasher.Write([]byte("msg-sys:"))
+			sysToolsHasher.Write([]byte(strings.TrimSpace(msg.Get("content").Raw)))
+			sysToolsHasher.Write([]byte{0})
+			continue
 		}
-		hasSystemOrTools = true
-		sysToolsHasher.Write([]byte("msg-sys:"))
-		sysToolsHasher.Write([]byte(strings.TrimSpace(messages[convStart].Get("content").Raw)))
-		sysToolsHasher.Write([]byte{0})
-		convStart++
+		convMessages = append(convMessages, msg)
 	}
 	if tools := root.Get("tools"); tools.IsArray() && len(tools.Array()) > 0 {
 		hasSystemOrTools = true
@@ -365,7 +365,6 @@ func applyKiroPrefixCacheUsage(detail usage.Detail, authID, model string, reques
 		sysToolsHasher.Write([]byte{0})
 	}
 
-	convMessages := messages[convStart:]
 	if len(convMessages) == 0 {
 		return detail
 	}
