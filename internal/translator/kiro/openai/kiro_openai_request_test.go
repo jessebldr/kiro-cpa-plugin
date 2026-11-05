@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/nguyenha935/kiro-cpa-plugin/internal/modelcapabilities"
+	"github.com/jessebldr/kiro-cpa-plugin/internal/modelcapabilities"
 )
 
 func withDeclaredTestTools(t *testing.T, input []byte) []byte {

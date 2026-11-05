@@ -66,7 +66,7 @@ func TestNormalizeLoginBaseURL(t *testing.T) {
 		"http://",
 		"http:127.0.0.1",
 		"http://127.0.0.1:8317/v8/management",
-		"http://127.0.0.1:8317/v8/management/plugins/kiro-ha/login",
+		"http://127.0.0.1:8317/v8/management/plugins/kiro-cpa/login",
 		"http://127.0.0.1:8317?next=1",
 		"http://127.0.0.1:8317?",
 		"http://127.0.0.1:8317#state=x",
@@ -85,7 +85,7 @@ func TestLoginLinkStaysRelativeWithoutLoginBaseURL(t *testing.T) {
 	// The Management Center resolves the link against its own origin; the
 	// default must remain exactly the relative link it has always received.
 	keepLoginSettings(t)
-	configurePlugin(configureRequest("plugins:\n  configs:\n    kiro-ha:\n      min_token_interval: 4s\n"))
+	configurePlugin(configureRequest("plugins:\n  configs:\n    kiro-cpa:\n      min_token_interval: 4s\n"))
 	login := startTestLogin(t)
 	if want := resourceBasePath + loginResourcePath + "#state=" + login.State; login.URL != want {
 		t.Fatalf("sign-in URL = %q, want %q", login.URL, want)
@@ -95,7 +95,7 @@ func TestLoginLinkStaysRelativeWithoutLoginBaseURL(t *testing.T) {
 func TestLoginBaseURLMakesTheLinkAbsolute(t *testing.T) {
 	for name, doc := range map[string]string{
 		"plugin section": "login_base_url: http://127.0.0.1:8317/\n",
-		"plugin id":      "plugins:\n  configs:\n    kiro-ha:\n      login_base_url: http://127.0.0.1:8317/\n",
+		"plugin id":      "plugins:\n  configs:\n    kiro-cpa:\n      login_base_url: http://127.0.0.1:8317/\n",
 		"provider name":  "plugins:\n  configs:\n    kiro:\n      login_base_url: http://127.0.0.1:8317\n",
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -120,7 +120,7 @@ func TestLoginBaseURLMakesTheLinkAbsolute(t *testing.T) {
 
 func TestInvalidLoginBaseURLFallsBackToTheRelativeLink(t *testing.T) {
 	keepLoginSettings(t)
-	configurePlugin(configureRequest("plugins:\n  configs:\n    kiro-ha:\n      login_base_url: http://127.0.0.1:8317/v8/management\n      suspend_cooldown: 3h\n"))
+	configurePlugin(configureRequest("plugins:\n  configs:\n    kiro-cpa:\n      login_base_url: http://127.0.0.1:8317/v8/management\n      suspend_cooldown: 3h\n"))
 	if pluginSettings.LoginBaseURL != "" || pluginSettings.SuspendCooldown != "3h" {
 		t.Fatalf("settings after an invalid base: %#v", pluginSettings)
 	}

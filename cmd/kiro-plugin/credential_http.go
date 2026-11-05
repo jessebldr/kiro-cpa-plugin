@@ -6,8 +6,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	kiroauth "github.com/nguyenha935/kiro-cpa-plugin/internal/auth/kiro"
-	kiroexecutor "github.com/nguyenha935/kiro-cpa-plugin/internal/runtime/executor"
+	kiroauth "github.com/jessebldr/kiro-cpa-plugin/internal/auth/kiro"
+	kiroexecutor "github.com/jessebldr/kiro-cpa-plugin/internal/runtime/executor"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
 )
 

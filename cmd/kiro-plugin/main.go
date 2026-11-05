@@ -62,10 +62,10 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	kiroauth "github.com/nguyenha935/kiro-cpa-plugin/internal/auth/kiro"
-	"github.com/nguyenha935/kiro-cpa-plugin/internal/kiroroute"
-	"github.com/nguyenha935/kiro-cpa-plugin/internal/modelcapabilities"
-	kiroexecutor "github.com/nguyenha935/kiro-cpa-plugin/internal/runtime/executor"
+	kiroauth "github.com/jessebldr/kiro-cpa-plugin/internal/auth/kiro"
+	"github.com/jessebldr/kiro-cpa-plugin/internal/kiroroute"
+	"github.com/jessebldr/kiro-cpa-plugin/internal/modelcapabilities"
+	kiroexecutor "github.com/jessebldr/kiro-cpa-plugin/internal/runtime/executor"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	coreexec "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/config"
@@ -82,7 +82,7 @@ const (
 	// providerName because the official store already publishes a plugin with
 	// id "kiro", and a store install writes <id>.so, so sharing the id would let
 	// an unrelated install overwrite this binary in place.
-	pluginID = "kiro-ha"
+	pluginID = "kiro-cpa"
 	// providerName is the executor/auth provider key: the credential type,
 	// the model owner and the key of oauth-model-alias and the like. It stays
 	// "kiro" so existing credential files and config stay valid.
@@ -570,8 +570,8 @@ func pluginRegistration() registration {
 		Metadata: pluginapi.Metadata{
 			Name:             pluginDisplayName,
 			Version:          pluginVersion,
-			Author:           "nguyenha935",
-			GitHubRepository: "https://github.com/nguyenha935/kiro-cpa-plugin",
+			Author:           "jessebldr",
+			GitHubRepository: "https://github.com/jessebldr/kiro-cpa-plugin",
 			Logo:             pluginLogoDataURI(),
 			ConfigFields:     pluginConfigFields(),
 		},

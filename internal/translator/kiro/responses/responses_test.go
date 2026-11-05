@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nguyenha935/kiro-cpa-plugin/internal/modelcapabilities"
-	kiroclaude "github.com/nguyenha935/kiro-cpa-plugin/internal/translator/kiro/claude"
+	"github.com/jessebldr/kiro-cpa-plugin/internal/modelcapabilities"
+	kiroclaude "github.com/jessebldr/kiro-cpa-plugin/internal/translator/kiro/claude"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	"github.com/tidwall/gjson"
 	"google.golang.org/protobuf/encoding/protowire"

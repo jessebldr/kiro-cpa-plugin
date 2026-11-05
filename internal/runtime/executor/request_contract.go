@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	kirocommon "github.com/nguyenha935/kiro-cpa-plugin/internal/translator/kiro/common"
+	kirocommon "github.com/jessebldr/kiro-cpa-plugin/internal/translator/kiro/common"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"

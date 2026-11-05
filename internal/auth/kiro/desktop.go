@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nguyenha935/kiro-cpa-plugin/internal/kiroroute"
+	"github.com/jessebldr/kiro-cpa-plugin/internal/kiroroute"
 )
 
 // desktopRefreshEndpoint is the Kiro auth service the Kiro IDE and 9router use

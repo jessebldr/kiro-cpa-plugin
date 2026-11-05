@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nguyenha935/kiro-cpa-plugin/internal/kiroroute"
+	"github.com/jessebldr/kiro-cpa-plugin/internal/kiroroute"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/config"
 )
 

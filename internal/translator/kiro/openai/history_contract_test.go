@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nguyenha935/kiro-cpa-plugin/internal/modelcapabilities"
+	"github.com/jessebldr/kiro-cpa-plugin/internal/modelcapabilities"
 )
 
 func TestBuildKiroPayloadPreservesInstructionsAndCompleteHistory(t *testing.T) {

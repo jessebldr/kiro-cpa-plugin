@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	kiroclaude "github.com/nguyenha935/kiro-cpa-plugin/internal/translator/kiro/claude"
+	kiroclaude "github.com/jessebldr/kiro-cpa-plugin/internal/translator/kiro/claude"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
 	"github.com/tidwall/gjson"

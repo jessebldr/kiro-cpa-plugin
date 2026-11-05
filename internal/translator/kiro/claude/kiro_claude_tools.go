@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	kirocommon "github.com/nguyenha935/kiro-cpa-plugin/internal/translator/kiro/common"
+	kirocommon "github.com/jessebldr/kiro-cpa-plugin/internal/translator/kiro/common"
 	log "github.com/sirupsen/logrus"
 )
 

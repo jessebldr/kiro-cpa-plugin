@@ -6,7 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	kirocommon "github.com/nguyenha935/kiro-cpa-plugin/internal/translator/kiro/common"
+	kirocommon "github.com/jessebldr/kiro-cpa-plugin/internal/translator/kiro/common"
 )
 
 // The header and the body must not disagree about the agent mode. They were

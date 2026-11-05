@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	kiroauth "github.com/nguyenha935/kiro-cpa-plugin/internal/auth/kiro"
-	kiroexecutor "github.com/nguyenha935/kiro-cpa-plugin/internal/runtime/executor"
+	kiroauth "github.com/jessebldr/kiro-cpa-plugin/internal/auth/kiro"
+	kiroexecutor "github.com/jessebldr/kiro-cpa-plugin/internal/runtime/executor"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
@@ -324,10 +324,10 @@ func TestPluginUsesKiroDisplayNameAndStableProviderID(t *testing.T) {
 	if registration.Metadata.Name != "Kiro" {
 		t.Fatalf("plugin display name = %q, want Kiro", registration.Metadata.Name)
 	}
-	if registration.Metadata.GitHubRepository != "https://github.com/nguyenha935/kiro-cpa-plugin" {
+	if registration.Metadata.GitHubRepository != "https://github.com/jessebldr/kiro-cpa-plugin" {
 		t.Fatalf("plugin repository = %q, want standalone repository", registration.Metadata.GitHubRepository)
 	}
-	if registration.Metadata.Author != "nguyenha935" {
+	if registration.Metadata.Author != "jessebldr" {
 		t.Fatalf("plugin author = %q, want standalone project owner", registration.Metadata.Author)
 	}
 	if !registration.Capabilities.AuthProvider {
@@ -338,8 +338,8 @@ func TestPluginUsesKiroDisplayNameAndStableProviderID(t *testing.T) {
 	}
 	// The plugin id must not collide with the official store's "kiro" plugin:
 	// a store install writes <id>.so and would overwrite this binary in place.
-	if pluginID != "kiro-ha" || pluginID == providerName {
-		t.Fatalf("plugin ID = %q, want kiro-ha distinct from provider %q", pluginID, providerName)
+	if pluginID != "kiro-cpa" || pluginID == providerName {
+		t.Fatalf("plugin ID = %q, want kiro-cpa distinct from provider %q", pluginID, providerName)
 	}
 }
 
@@ -888,17 +888,17 @@ func TestParseRejectsIDCWhenRequiredProfileDiscoveryFails(t *testing.T) {
 
 func TestConfigurePluginReadsPluginIDSectionBeforeProviderSection(t *testing.T) {
 	// The host files the plugin's settings under plugins.configs.<plugin id>,
-	// which is the library name kiro-ha, while older configs used the provider
+	// which is the library name kiro-cpa, while older configs used the provider
 	// name. Both must be read, and the id-keyed section wins when both exist.
 	original := pluginSettings
 	defer func() { pluginSettings = original }()
 	pluginSettings = testPluginSettings
-	configurePlugin(configureRequest("plugins:\n  configs:\n    kiro-ha:\n      min_token_interval: 9s\n    kiro:\n      min_token_interval: 8s\n"))
+	configurePlugin(configureRequest("plugins:\n  configs:\n    kiro-cpa:\n      min_token_interval: 9s\n    kiro:\n      min_token_interval: 8s\n"))
 	if pluginSettings.MinTokenInterval != "9s" || pluginSettings.SuspendCooldown != "2h" {
 		t.Fatalf("plugin-id section did not win: %#v", pluginSettings)
 	}
 	pluginSettings = testPluginSettings
-	configurePlugin(configureRequest("outer:\n  kiro-ha:\n    suspend_cooldown: 6h\n"))
+	configurePlugin(configureRequest("outer:\n  kiro-cpa:\n    suspend_cooldown: 6h\n"))
 	if pluginSettings.SuspendCooldown != "6h" || pluginSettings.MinTokenInterval != "3s" {
 		t.Fatalf("nested plugin-id section was not found: %#v", pluginSettings)
 	}

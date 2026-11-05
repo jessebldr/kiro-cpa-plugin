@@ -16,7 +16,7 @@ The plugin:
 - preserves system and developer instructions exactly once as user text, because the upstream `systemPrompt` field is feature-gated;
 - provides a `Kiro Usage` page for subscription usage, with per-account reload and an Add account dialog.
 
-`Kiro` is the name shown in the CLIProxyAPI interface. The provider ID stays `kiro`; the plugin ID, library filename, and `plugins.configs` key are `kiro-ha` (see [Build](#build)).
+`Kiro` is the name shown in the CLIProxyAPI interface. The provider ID stays `kiro`; the plugin ID, library filename, and `plugins.configs` key are `kiro-cpa` (see [Build](#build)).
 
 ## Requirements
 
@@ -32,16 +32,16 @@ The plugin:
 go test ./...
 go vet ./...
 CGO_ENABLED=1 go build -trimpath -buildmode=c-shared \
-  -ldflags "-X github.com/nguyenha935/kiro-cpa-plugin/internal/auth/kiro.clientVersion=2.32.0 -X main.pluginVersion=<version>" \
-  -o package/kiro-ha.so ./cmd/kiro-plugin
-sha256sum package/kiro-ha.so > package/kiro-ha.so.sha256
+  -ldflags "-X github.com/jessebldr/kiro-cpa-plugin/internal/auth/kiro.clientVersion=2.32.0 -X main.pluginVersion=<version>" \
+  -o package/kiro-cpa.so ./cmd/kiro-plugin
+sha256sum package/kiro-cpa.so > package/kiro-cpa.so.sha256
 ```
 
-On Windows use the same flags with `-o package/kiro-ha.dll`, on macOS `-o package/kiro-ha.dylib`. The two `-ldflags -X` values are what the release workflow pins: `clientVersion` is the Kiro CLI release the plugin identifies as, and `pluginVersion` is reported to CPA as the plugin version (it defaults to `dev` when omitted).
+On Windows use the same flags with `-o package/kiro-cpa.dll`, on macOS `-o package/kiro-cpa.dylib`. The two `-ldflags -X` values are what the release workflow pins: `clientVersion` is the Kiro CLI release the plugin identifies as, and `pluginVersion` is reported to CPA as the plugin version (it defaults to `dev` when omitted).
 
-The GitHub Actions workflow tests Windows, Linux and macOS, then publishes archives for Windows amd64, Linux amd64, Linux arm64, macOS amd64 and macOS arm64 on every `v*` tag. Each archive and plugin binary has a SHA-256 checksum. Linux packages contain `kiro-ha.so`, Windows packages `kiro-ha.dll`, and macOS packages `kiro-ha.dylib`.
+The GitHub Actions workflow tests Windows, Linux and macOS, then publishes archives for Windows amd64, Linux amd64, Linux arm64, macOS amd64 and macOS arm64 on every `v*` tag. Each archive and plugin binary has a SHA-256 checksum. Linux packages contain `kiro-cpa.so`, Windows packages `kiro-cpa.dll`, and macOS packages `kiro-cpa.dylib`.
 
-The library is named `kiro-ha` because CLIProxyAPI derives the plugin ID from the file name and the official plugin store already publishes a plugin with ID `kiro`. Keeping a distinct ID means a store install of that plugin cannot overwrite this binary. The provider name stays `kiro`, so credential files, `oauth-model-alias` and `oauth-excluded-models` entries are unchanged.
+The library is named `kiro-cpa` because CLIProxyAPI derives the plugin ID from the file name and the official plugin store already publishes a plugin with ID `kiro`. Keeping a distinct ID means a store install of that plugin cannot overwrite this binary. The provider name stays `kiro`, so credential files, `oauth-model-alias` and `oauth-excluded-models` entries are unchanged.
 
 ## Install
 
@@ -49,7 +49,7 @@ CLIProxyAPI looks for plugins in `<plugins.dir>/<os>/<arch>` (for example `plugi
 
 1. Stop CLIProxyAPI. CPA does not notice a file replaced under the same name while it runs, so a new build takes effect only after a restart.
 2. Back up the existing binary and `config.yaml`.
-3. Check the downloaded archive against the release's `checksums.txt` (`sha256sum -c --ignore-missing checksums.txt`), then copy `kiro-ha.so` on Linux, `kiro-ha.dll` on Windows or `kiro-ha.dylib` on macOS into the plugin directory.
+3. Check the downloaded archive against the release's `checksums.txt` (`sha256sum -c --ignore-missing checksums.txt`), then copy `kiro-cpa.so` on Linux, `kiro-cpa.dll` on Windows or `kiro-cpa.dylib` on macOS into the plugin directory.
 4. Enable the plugin in `config.yaml`:
 
    ```yaml
@@ -57,12 +57,12 @@ CLIProxyAPI looks for plugins in `<plugins.dir>/<os>/<arch>` (for example `plugi
      enabled: true
      dir: plugins
      configs:
-       kiro-ha:
+       kiro-cpa:
          enabled: true
          priority: 1
    ```
 
-5. Start CLIProxyAPI. The log shows `plugin registered plugin_id=kiro-ha plugin_name=Kiro version=<version>`.
+5. Start CLIProxyAPI. The log shows `plugin registered plugin_id=kiro-cpa plugin_name=Kiro version=<version>`.
 
 When upgrading from a build named `kiro.so`, move the old file out of the plugin directory first: two libraries registering the same provider are both loaded and the later one silently wins. To roll back, put the backed-up binary back under the same name and restart CLIProxyAPI.
 
@@ -70,7 +70,7 @@ Every sign-in method is stored as a standard CPA Authentication File; API keys a
 
 ### Sign in
 
-There are two ways in. The quickest is `Add account` on the [Kiro Usage](#kiro-usage) page, which signs in without leaving the page. The other is the OAuth page of the Management Center: press `Start Kiro Login`, then `Open Link`. The link opens the plugin's sign-in page (`/v0/resource/plugins/kiro-ha/login`) in a new tab. Choose a method there; the Kiro card on the OAuth page finishes on its own. Nothing needs to be pasted into the card's Callback URL field.
+There are two ways in. The quickest is `Add account` on the [Kiro Usage](#kiro-usage) page, which signs in without leaving the page. The other is the OAuth page of the Management Center: press `Start Kiro Login`, then `Open Link`. The link opens the plugin's sign-in page (`/v0/resource/plugins/kiro-cpa/login`) in a new tab. Choose a method there; the Kiro card on the OAuth page finishes on its own. Nothing needs to be pasted into the card's Callback URL field.
 
 The page submits the method to the authenticated `POST /v0/management/plugins/kiro/connect` route, so API keys, refresh tokens and imported JSON only travel through CPA's Management API. The sign-in page is a static shell like the Usage page: it reads the key the Management Center keeps when it signs in with “Remember password” ticked, or asks for it and holds it in memory only. The sign-in state that `StartLogin` issues travels in the URL fragment, which the browser never sends to the server.
 
@@ -90,7 +90,7 @@ EasyCLIProxyAPI accepts only an absolute sign-in link and rejects the relative o
 ```yaml
 plugins:
   configs:
-    kiro-ha:
+    kiro-cpa:
       login_base_url: http://127.0.0.1:8317
 ```
 
@@ -104,7 +104,7 @@ Every request the plugin makes goes through a proxy chosen in CPA's own order: `
 
 The plugin stores credentials through the CLIProxyAPI authentication mechanism. Do not put passwords, management keys, access tokens, refresh tokens, or client secrets in the configuration or repository.
 
-CPA owns credential selection, failover and the 429 backoff ladder; the plugin returns status-aware errors (429/402/403/401), also for an error in the middle of a stream, and forwards an upstream `Retry-After` when Kiro sends one; CPA 8.0.42 and later cool a 429 for exactly that long. The plugin keeps only the protection CPA cannot provide: it paces requests per credential (`min_token_interval`/`max_token_interval`, default 1–2s with jitter), remembers a 402 monthly limit until the next UTC day, and takes a credential Kiro reports as suspended out of rotation for `suspend_cooldown` (default 1h). While a credential is parked it is refused with 402 (monthly limit) or 403 (suspended) rather than 429: CPA before 8.0.42 cannot read the plugin's retry-after, and CPA cools 402 and 403 for 30 minutes on every version, so they make it fail over instead of retrying the credential within seconds. These settings, like `login_base_url`, live under `plugins.configs.kiro-ha`; a credential with `disable_cooling: true` opts out of all of them.
+CPA owns credential selection, failover and the 429 backoff ladder; the plugin returns status-aware errors (429/402/403/401), also for an error in the middle of a stream, and forwards an upstream `Retry-After` when Kiro sends one; CPA 8.0.42 and later cool a 429 for exactly that long. The plugin keeps only the protection CPA cannot provide: it paces requests per credential (`min_token_interval`/`max_token_interval`, default 1–2s with jitter), remembers a 402 monthly limit until the next UTC day, and takes a credential Kiro reports as suspended out of rotation for `suspend_cooldown` (default 1h). While a credential is parked it is refused with 402 (monthly limit) or 403 (suspended) rather than 429: CPA before 8.0.42 cannot read the plugin's retry-after, and CPA cools 402 and 403 for 30 minutes on every version, so they make it fail over instead of retrying the credential within seconds. These settings, like `login_base_url`, live under `plugins.configs.kiro-cpa`; a credential with `disable_cooling: true` opts out of all of them.
 
 ## Model capabilities
 
@@ -130,7 +130,7 @@ CLIProxyAPI serves plugin resource routes without the management key, so the pag
 
 | Route | Auth | Purpose |
 | --- | --- | --- |
-| `GET /v0/resource/plugins/kiro-ha/usage` | none | Static shell: layout and one script, identical bytes on every request, no account data. |
+| `GET /v0/resource/plugins/kiro-cpa/usage` | none | Static shell: layout and one script, identical bytes on every request, no account data. |
 | `GET /v0/management/plugins/kiro/usage/view?lang=&refresh=` | management key | The account table as an HTML fragment. `refresh` names one credential file or `all`. |
 | `POST /v0/management/plugins/kiro/connect` | management key | The Add account dialog's sign-in, shared with the sign-in page. |
 

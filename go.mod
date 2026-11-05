@@ -1,4 +1,4 @@
-module github.com/nguyenha935/kiro-cpa-plugin
+module github.com/jessebldr/kiro-cpa-plugin
 
 go 1.26.0
 

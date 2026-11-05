@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"strings"
 
-	kiroauth "github.com/nguyenha935/kiro-cpa-plugin/internal/auth/kiro"
+	kiroauth "github.com/jessebldr/kiro-cpa-plugin/internal/auth/kiro"
 )
 
 // AWS exposes no single account name for a Kiro credential, so identity has to

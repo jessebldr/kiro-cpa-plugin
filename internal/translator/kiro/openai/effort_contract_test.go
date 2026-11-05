@@ -3,7 +3,7 @@ package openai
 import (
 	"testing"
 
-	"github.com/nguyenha935/kiro-cpa-plugin/internal/modelcapabilities"
+	"github.com/jessebldr/kiro-cpa-plugin/internal/modelcapabilities"
 	"github.com/tidwall/gjson"
 )
 

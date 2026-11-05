@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	kiroauth "github.com/nguyenha935/kiro-cpa-plugin/internal/auth/kiro"
+	kiroauth "github.com/jessebldr/kiro-cpa-plugin/internal/auth/kiro"
 )
 
 // Profile-bearing credentials read the model catalogue from the Kiro control

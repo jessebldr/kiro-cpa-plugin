@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nguyenha935/kiro-cpa-plugin/internal/modelcapabilities"
+	"github.com/jessebldr/kiro-cpa-plugin/internal/modelcapabilities"
 )
 
 // System instructions have to be asserted on the payload, not on the model's

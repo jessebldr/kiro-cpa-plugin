@@ -8,7 +8,7 @@ import (
 
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 
-	kirocommon "github.com/nguyenha935/kiro-cpa-plugin/internal/translator/kiro/common"
+	kirocommon "github.com/jessebldr/kiro-cpa-plugin/internal/translator/kiro/common"
 )
 
 func TestApplyKiroClientHeadersUsesCurrentPlatform(t *testing.T) {

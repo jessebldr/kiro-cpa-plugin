@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/nguyenha935/kiro-cpa-plugin/internal/modelcapabilities"
-	kiroclaude "github.com/nguyenha935/kiro-cpa-plugin/internal/translator/kiro/claude"
+	"github.com/jessebldr/kiro-cpa-plugin/internal/modelcapabilities"
+	kiroclaude "github.com/jessebldr/kiro-cpa-plugin/internal/translator/kiro/claude"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/usage"

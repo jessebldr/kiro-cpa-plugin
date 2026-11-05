@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/nguyenha935/kiro-cpa-plugin/internal/modelcapabilities"
-	kirocommon "github.com/nguyenha935/kiro-cpa-plugin/internal/translator/kiro/common"
+	"github.com/jessebldr/kiro-cpa-plugin/internal/modelcapabilities"
+	kirocommon "github.com/jessebldr/kiro-cpa-plugin/internal/translator/kiro/common"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )

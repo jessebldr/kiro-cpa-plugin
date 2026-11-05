@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	kiroauth "github.com/nguyenha935/kiro-cpa-plugin/internal/auth/kiro"
+	kiroauth "github.com/jessebldr/kiro-cpa-plugin/internal/auth/kiro"
 )
 
 // Only one predicate may decide whether a credential goes through profile
