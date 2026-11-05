@@ -124,6 +124,49 @@ func StreamToolUseEvent(event map[string]interface{}, current *ToolUseState, pro
 	return step, nil, nil
 }
 
+// ToolUseEventID returns the toolUseId carried by a raw or nested toolUseEvent.
+func ToolUseEventID(event map[string]interface{}) string {
+	tu := event
+	if nested, ok := event["toolUseEvent"].(map[string]interface{}); ok {
+		tu = nested
+	}
+	return kirocommon.GetString(tu, "toolUseId")
+}
+
+// FinalizeToolUseState completes an open zero-argument tool invocation when
+// Kiro ends the stream, emits messageStopEvent, or starts a subsequent tool
+// call without sending an explicit stop:true frame (as observed on AWS Kiro
+// whenever a model invokes a tool with {} arguments such as get_goal or
+// working_directory({})). A call that already streamed non-empty arguments or
+// truncated JSON without stop:true still fails as an incomplete tool call.
+func FinalizeToolUseState(current *ToolUseState, processedIDs map[string]bool) (ToolUseStep, error) {
+	if current == nil || processedIDs[current.ToolUseID] {
+		return ToolUseStep{}, nil
+	}
+
+	rawInput := current.InputBuffer.String()
+	input := make(map[string]interface{})
+	var step ToolUseStep
+	if strings.TrimSpace(rawInput) != "" {
+		if err := json.Unmarshal([]byte(rawInput), &input); err != nil {
+			return ToolUseStep{}, fmt.Errorf("kiro: completed tool call %q has invalid JSON input: %w", current.ToolUseID, err)
+		}
+		if len(input) > 0 {
+			return ToolUseStep{}, fmt.Errorf("kiro: incomplete tool call %q ended without stop", current.ToolUseID)
+		}
+	} else {
+		step.Fragment = "{}"
+	}
+
+	if _, err := ClaimToolUseID(processedIDs, current.ToolUseID); err != nil {
+		return ToolUseStep{}, err
+	}
+	step.ToolUseID = current.ToolUseID
+	step.Name = current.Name
+	step.Completed = &KiroToolUse{ToolUseID: current.ToolUseID, Name: current.Name, Input: input}
+	return step, nil
+}
+
 func jsonEqual(buffered string, encoded []byte) bool {
 	var a, b interface{}
 	if json.Unmarshal([]byte(buffered), &a) != nil || json.Unmarshal(encoded, &b) != nil {

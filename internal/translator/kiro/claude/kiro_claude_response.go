@@ -60,10 +60,7 @@ func BuildClaudeResponse(content string, reasoning *KiroReasoningContent, toolUs
 		"model":       model,
 		"content":     contentBlocks,
 		"stop_reason": stopReason,
-		"usage": map[string]interface{}{
-			"input_tokens":  usageInfo.InputTokens,
-			"output_tokens": usageInfo.OutputTokens,
-		},
+		"usage":       buildClaudeUsageMap(usageInfo),
 	}
 	result, _ := json.Marshal(response)
 	return result

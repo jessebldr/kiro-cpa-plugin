@@ -132,13 +132,38 @@ func BuildClaudeMessageDeltaEvent(stopReason string, usageInfo usage.Detail) []b
 			"stop_reason":   stopReason,
 			"stop_sequence": nil,
 		},
-		"usage": map[string]interface{}{
-			"input_tokens":  usageInfo.InputTokens,
-			"output_tokens": usageInfo.OutputTokens,
-		},
+		"usage": buildClaudeUsageMap(usageInfo),
 	}
 	deltaResult, _ := json.Marshal(deltaEvent)
 	return []byte("event: message_delta\ndata: " + string(deltaResult))
+}
+
+func buildClaudeUsageMap(usageInfo usage.Detail) map[string]interface{} {
+	cacheRead := usageInfo.CacheReadTokens
+	if cacheRead == 0 && usageInfo.CachedTokens > 0 {
+		cacheRead = usageInfo.CachedTokens
+	}
+	cacheCreation := usageInfo.CacheCreationTokens
+	uncachedInput := usageInfo.InputTokens - cacheRead - cacheCreation
+	if uncachedInput < 0 {
+		uncachedInput = 0
+	}
+	usageMap := map[string]interface{}{
+		"input_tokens":  uncachedInput,
+		"output_tokens": usageInfo.OutputTokens,
+	}
+	if cacheRead > 0 {
+		usageMap["cache_read_input_tokens"] = cacheRead
+	}
+	if cacheCreation > 0 {
+		usageMap["cache_creation_input_tokens"] = cacheCreation
+	}
+	if usageInfo.ReasoningTokens > 0 {
+		usageMap["output_tokens_details"] = map[string]interface{}{
+			"thinking_tokens": usageInfo.ReasoningTokens,
+		}
+	}
+	return usageMap
 }
 
 // BuildClaudeMessageStopOnlyEvent creates only the message_stop event

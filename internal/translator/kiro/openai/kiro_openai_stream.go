@@ -141,14 +141,39 @@ func BuildOpenAISSEUsage(state *OpenAIStreamState, usageInfo usage.Detail) strin
 		"created": state.Created,
 		"model":   state.Model,
 		"choices": []map[string]interface{}{},
-		"usage": map[string]interface{}{
-			"prompt_tokens":     usageInfo.InputTokens,
-			"completion_tokens": usageInfo.OutputTokens,
-			"total_tokens":      usageInfo.InputTokens + usageInfo.OutputTokens,
-		},
+		"usage":   buildOpenAIUsageMap(usageInfo),
 	}
 	result, _ := json.Marshal(chunk)
 	return FormatSSEEvent(result)
+}
+
+func buildOpenAIUsageMap(usageInfo usage.Detail) map[string]interface{} {
+	cacheRead := usageInfo.CacheReadTokens
+	if cacheRead == 0 && usageInfo.CachedTokens > 0 {
+		cacheRead = usageInfo.CachedTokens
+	}
+	cacheCreation := usageInfo.CacheCreationTokens
+	usageMap := map[string]interface{}{
+		"prompt_tokens":     usageInfo.InputTokens,
+		"completion_tokens": usageInfo.OutputTokens,
+		"total_tokens":      usageInfo.InputTokens + usageInfo.OutputTokens,
+	}
+	if cacheRead > 0 || cacheCreation > 0 {
+		promptDetails := map[string]interface{}{
+			"cached_tokens": cacheRead,
+		}
+		if cacheCreation > 0 {
+			promptDetails["cache_write_tokens"] = cacheCreation
+			promptDetails["cached_creation_tokens"] = cacheCreation
+		}
+		usageMap["prompt_tokens_details"] = promptDetails
+	}
+	if usageInfo.ReasoningTokens > 0 {
+		usageMap["completion_tokens_details"] = map[string]interface{}{
+			"reasoning_tokens": usageInfo.ReasoningTokens,
+		}
+	}
+	return usageMap
 }
 
 // buildBaseChunk creates a base chunk structure for streaming

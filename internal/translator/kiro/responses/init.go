@@ -179,16 +179,28 @@ func claudeResponseSSE(response []byte) []byte {
 		appendFrame(map[string]any{"type": "content_block_stop", "index": index})
 	}
 
+	deltaUsage := map[string]any{
+		"input_tokens":  root.Get("usage.input_tokens").Int(),
+		"output_tokens": root.Get("usage.output_tokens").Int(),
+	}
+	if cacheRead := root.Get("usage.cache_read_input_tokens"); cacheRead.Exists() && cacheRead.Int() > 0 {
+		deltaUsage["cache_read_input_tokens"] = cacheRead.Int()
+	}
+	if cacheCreation := root.Get("usage.cache_creation_input_tokens"); cacheCreation.Exists() && cacheCreation.Int() > 0 {
+		deltaUsage["cache_creation_input_tokens"] = cacheCreation.Int()
+	}
+	if thinkingTokens := root.Get("usage.output_tokens_details.thinking_tokens"); thinkingTokens.Exists() && thinkingTokens.Int() > 0 {
+		deltaUsage["output_tokens_details"] = map[string]any{
+			"thinking_tokens": thinkingTokens.Int(),
+		}
+	}
 	appendFrame(map[string]any{
 		"type": "message_delta",
 		"delta": map[string]any{
 			"stop_reason":   root.Get("stop_reason").String(),
 			"stop_sequence": nil,
 		},
-		"usage": map[string]any{
-			"input_tokens":  root.Get("usage.input_tokens").Int(),
-			"output_tokens": root.Get("usage.output_tokens").Int(),
-		},
+		"usage": deltaUsage,
 	})
 	appendFrame(map[string]any{"type": "message_stop"})
 	return bytes.Join(frames, []byte("\n"))

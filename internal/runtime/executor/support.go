@@ -134,6 +134,10 @@ func normalizeTransportError(err error) error {
 	if err == nil {
 		return nil
 	}
+	var se statusErr
+	if errors.As(err, &se) {
+		return se
+	}
 	if errors.Is(err, context.Canceled) {
 		return statusErr{code: 499, msg: "client canceled request"}
 	}

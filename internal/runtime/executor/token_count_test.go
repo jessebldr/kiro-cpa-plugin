@@ -203,3 +203,70 @@ func TestExecutorsUseTheCredentialsWindow(t *testing.T) {
 		t.Fatalf("ExecuteStream prompt_tokens = %d, want %d", got, want)
 	}
 }
+
+func TestCacheTokenUsagePropagatesToClaudeAndOpenAIFormats(t *testing.T) {
+	body := kiroEventStream(
+		statusEvent("assistantResponseEvent", `{"content":"ok"}`),
+		statusEvent("metadataEvent", `{"stopReason":"END_TURN","tokenUsage":{"uncachedInputTokens":200,"cacheReadInputTokens":800,"cacheWriteInputTokens":50,"outputTokens":10,"totalTokens":1060}}`),
+	)
+
+	// 1. Claude streaming format
+	outClaude := make(chan cliproxyexecutor.StreamChunk, 64)
+	if !(&KiroExecutor{}).streamToChannel(context.Background(), bytes.NewReader(body), outClaude, sdktranslator.FormatClaude, "claude-opus-4.6", nil, nil, 200000) {
+		t.Fatal("Claude stream failed")
+	}
+	close(outClaude)
+	foundClaudeDelta := false
+	for chunk := range outClaude {
+		data := eventData(chunk.Payload)
+		if data.Get("type").String() != "message_delta" {
+			continue
+		}
+		foundClaudeDelta = true
+		if got := data.Get("usage.input_tokens").Int(); got != 200 {
+			t.Fatalf("Claude usage.input_tokens = %d, want 200", got)
+		}
+		if got := data.Get("usage.cache_read_input_tokens").Int(); got != 800 {
+			t.Fatalf("Claude usage.cache_read_input_tokens = %d, want 800", got)
+		}
+		if got := data.Get("usage.cache_creation_input_tokens").Int(); got != 50 {
+			t.Fatalf("Claude usage.cache_creation_input_tokens = %d, want 50", got)
+		}
+		if got := data.Get("usage.output_tokens").Int(); got != 10 {
+			t.Fatalf("Claude usage.output_tokens = %d, want 10", got)
+		}
+	}
+	if !foundClaudeDelta {
+		t.Fatal("missing Claude message_delta")
+	}
+
+	// 2. OpenAI streaming format
+	outOpenAI := make(chan cliproxyexecutor.StreamChunk, 64)
+	if !(&KiroExecutor{}).streamToChannel(context.Background(), bytes.NewReader(body), outOpenAI, sdktranslator.FormatOpenAI, "claude-opus-4.6", nil, nil, 200000) {
+		t.Fatal("OpenAI stream failed")
+	}
+	close(outOpenAI)
+	foundOpenAIUsage := false
+	for chunk := range outOpenAI {
+		parsed := gjson.ParseBytes(bytes.TrimSpace(chunk.Payload))
+		if !parsed.Get("usage").Exists() {
+			continue
+		}
+		foundOpenAIUsage = true
+		if got := parsed.Get("usage.prompt_tokens").Int(); got != 1050 {
+			t.Fatalf("OpenAI usage.prompt_tokens = %d, want 1050", got)
+		}
+		if got := parsed.Get("usage.prompt_tokens_details.cached_tokens").Int(); got != 800 {
+			t.Fatalf("OpenAI usage.prompt_tokens_details.cached_tokens = %d, want 800", got)
+		}
+		if got := parsed.Get("usage.prompt_tokens_details.cache_write_tokens").Int(); got != 50 {
+			t.Fatalf("OpenAI usage.prompt_tokens_details.cache_write_tokens = %d, want 50", got)
+		}
+		if got := parsed.Get("usage.completion_tokens").Int(); got != 10 {
+			t.Fatalf("OpenAI usage.completion_tokens = %d, want 10", got)
+		}
+	}
+	if !foundOpenAIUsage {
+		t.Fatal("missing OpenAI usage chunk")
+	}
+}

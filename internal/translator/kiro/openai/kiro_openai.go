@@ -147,14 +147,8 @@ func ConvertKiroStreamToOpenAI(ctx context.Context, model string, originalReques
 		}
 
 		// Extract usage if present
-		if eventJSON.Get("usage").Exists() {
-			inputTokens := eventJSON.Get("usage.input_tokens").Int()
-			outputTokens := eventJSON.Get("usage.output_tokens").Int()
-			usageInfo := usage.Detail{
-				InputTokens:  inputTokens,
-				OutputTokens: outputTokens,
-				TotalTokens:  inputTokens + outputTokens,
-			}
+		if usageNode := eventJSON.Get("usage"); usageNode.Exists() {
+			usageInfo := extractClaudeUsageDetail(usageNode)
 			chunk := BuildOpenAISSEUsage(state, usageInfo)
 			results = append(results, chunk)
 		}
@@ -166,14 +160,8 @@ func ConvertKiroStreamToOpenAI(ctx context.Context, model string, originalReques
 
 	case "ping":
 		// Ping event with usage - optionally emit usage chunk
-		if eventJSON.Get("usage").Exists() {
-			inputTokens := eventJSON.Get("usage.input_tokens").Int()
-			outputTokens := eventJSON.Get("usage.output_tokens").Int()
-			usageInfo := usage.Detail{
-				InputTokens:  inputTokens,
-				OutputTokens: outputTokens,
-				TotalTokens:  inputTokens + outputTokens,
-			}
+		if usageNode := eventJSON.Get("usage"); usageNode.Exists() {
+			usageInfo := extractClaudeUsageDetail(usageNode)
 			chunk := BuildOpenAISSEUsage(state, usageInfo)
 			results = append(results, chunk)
 		}
@@ -233,15 +221,32 @@ func ConvertKiroNonStreamToOpenAI(ctx context.Context, model string, originalReq
 	}
 
 	// Extract usage
-	usageInfo := usage.Detail{
-		InputTokens:  response.Get("usage.input_tokens").Int(),
-		OutputTokens: response.Get("usage.output_tokens").Int(),
-	}
-	usageInfo.TotalTokens = usageInfo.InputTokens + usageInfo.OutputTokens
+	usageInfo := extractClaudeUsageDetail(response.Get("usage"))
 
 	// Build OpenAI response with reasoning_content support
 	openaiResponse := BuildOpenAIResponseWithReasoning(content, reasoningContent, toolUses, model, usageInfo, stopReason)
 	return string(openaiResponse)
+}
+
+func extractClaudeUsageDetail(usageNode gjson.Result) usage.Detail {
+	uncachedInput := usageNode.Get("input_tokens").Int()
+	outputTokens := usageNode.Get("output_tokens").Int()
+	cacheRead := usageNode.Get("cache_read_input_tokens").Int()
+	cacheCreation := usageNode.Get("cache_creation_input_tokens").Int()
+	reasoningTokens := usageNode.Get("output_tokens_details.thinking_tokens").Int()
+	if reasoningTokens == 0 {
+		reasoningTokens = usageNode.Get("output_tokens_details.reasoning_tokens").Int()
+	}
+	inputTokens := uncachedInput + cacheRead + cacheCreation
+	return usage.Detail{
+		InputTokens:         inputTokens,
+		OutputTokens:        outputTokens,
+		ReasoningTokens:     reasoningTokens,
+		CachedTokens:        cacheRead,
+		CacheReadTokens:     cacheRead,
+		CacheCreationTokens: cacheCreation,
+		TotalTokens:         inputTokens + outputTokens,
+	}
 }
 
 // ParseClaudeEvent parses a Claude SSE event and returns the event type and data

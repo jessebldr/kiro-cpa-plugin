@@ -44,7 +44,7 @@ const (
 	proxyDialTimeout         = 30 * time.Second
 	proxyDialKeepAlive       = 30 * time.Second
 	proxyTLSHandshakeTimeout = 10 * time.Second
-	proxyResponseHeaderWait  = 30 * time.Second
+	proxyResponseHeaderWait  = 90 * time.Second
 	proxyExpectContinue      = 1 * time.Second
 	proxyMaxIdleConns        = 100
 	proxyMaxIdleConnsPerHost = 20

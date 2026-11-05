@@ -107,3 +107,63 @@ func TestStreamedToolInputFragmentsFormTheCompleteInput(t *testing.T) {
 		t.Fatalf("zero-argument input = %q", got)
 	}
 }
+
+// AWS Kiro omits the trailing stop:true frame when a model invokes a tool with
+// empty arguments (such as get_goal or working_directory({})). Both streaming
+// and buffered paths must finalize that zero-argument call as "{}" instead of
+// failing with "upstream ended during tool call" or dropping the call.
+func TestZeroArgumentToolCallWithoutStopFrameCompletesCleanly(t *testing.T) {
+	t.Parallel()
+
+	body := kiroEventStream(
+		kiroEvent("toolUseEvent", `{"toolUseEvent":{"toolUseId":"call_get_goal","name":"get_goal"}}`),
+		kiroEvent("toolUseEvent", `{"toolUseEvent":{"toolUseId":"call_workdir","name":"working_directory","input":""}}`),
+	)
+
+	out := make(chan cliproxyexecutor.StreamChunk, 64)
+	if ok := (&KiroExecutor{}).streamToChannel(context.Background(), strings.NewReader(string(body)), out, sdktranslator.FormatClaude, "claude-opus-4.6", nil, nil, 0); !ok {
+		t.Fatal("streamToChannel failed on zero-argument tool calls without stop:true")
+	}
+	close(out)
+
+	inputs := map[int64]*strings.Builder{}
+	var order []string
+	var stopReason string
+	for chunk := range out {
+		if chunk.Err != nil {
+			t.Fatal(chunk.Err)
+		}
+		data := eventData(chunk.Payload)
+		switch data.Get("type").String() {
+		case "content_block_start":
+			order = append(order, "start:"+data.Get("content_block.id").String()+":"+data.Get("content_block.name").String())
+			inputs[data.Get("index").Int()] = &strings.Builder{}
+		case "content_block_delta":
+			inputs[data.Get("index").Int()].WriteString(data.Get("delta.partial_json").String())
+		case "content_block_stop":
+			order = append(order, "stop")
+		case "message_delta":
+			stopReason = data.Get("delta.stop_reason").String()
+		}
+	}
+	if got := strings.Join(order, ","); got != "start:call_get_goal:get_goal,stop,start:call_workdir:working_directory,stop" {
+		t.Fatalf("block order = %s", got)
+	}
+	if inputs[0].String() != "{}" || inputs[1].String() != "{}" {
+		t.Fatalf("inputs = [%q, %q], want [\"{}\", \"{}\"]", inputs[0].String(), inputs[1].String())
+	}
+	if stopReason != "tool_use" {
+		t.Fatalf("stop_reason = %q, want tool_use", stopReason)
+	}
+
+	_, _, toolUses, _, _, parsedStop, err := (&KiroExecutor{}).parseEventStream(strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatalf("parseEventStream failed: %v", err)
+	}
+	if len(toolUses) != 2 || toolUses[0].Name != "get_goal" || toolUses[1].Name != "working_directory" {
+		t.Fatalf("parseEventStream toolUses = %+v, want 2 zero-arg tool calls", toolUses)
+	}
+	if parsedStop != "tool_use" {
+		t.Fatalf("parseEventStream stopReason = %q, want tool_use", parsedStop)
+	}
+}

@@ -155,7 +155,7 @@ func getKiroPooledHTTPClient() *http.Client {
 			TLSHandshakeTimeout: 10 * time.Second,
 
 			// Response header timeout
-			ResponseHeaderTimeout: 30 * time.Second,
+			ResponseHeaderTimeout: 90 * time.Second,
 
 			// Expect 100-continue timeout
 			ExpectContinueTimeout: 1 * time.Second,
@@ -1349,7 +1349,19 @@ func (e *KiroExecutor) parseEventStream(body io.Reader) (string, *kiroclaude.Kir
 			return content.String(), nil, toolUses, usageInfo, 0, stopReason, eventErr
 		}
 		if msg == nil {
-			// Normal end of stream (EOF)
+			// Normal end of stream (EOF). Finalize an open tool call when its
+			// buffered arguments are empty (zero-argument tool call) or already
+			// form a complete JSON object; fail if the JSON was truncated.
+			if currentToolUse != nil && !processedIDs[currentToolUse.ToolUseID] {
+				step, finErr := kiroclaude.FinalizeToolUseState(currentToolUse, processedIDs)
+				if finErr != nil {
+					return "", nil, nil, usageInfo, 0, stopReason, streamStatusError("upstream ended", fmt.Sprintf("upstream ended during tool call %q", currentToolUse.Name))
+				}
+				if step.Completed != nil {
+					toolUses = append(toolUses, *step.Completed)
+				}
+				currentToolUse = nil
+			}
 			break
 		}
 
@@ -1428,6 +1440,14 @@ func (e *KiroExecutor) parseEventStream(body io.Reader) (string, *kiroclaude.Kir
 				}
 				// Extract tool uses from response
 				if toolUsesRaw, ok := assistantResp["toolUses"].([]interface{}); ok {
+					if currentToolUse != nil && len(toolUsesRaw) > 0 {
+						if step, finErr := kiroclaude.FinalizeToolUseState(currentToolUse, processedIDs); finErr == nil {
+							if step.Completed != nil {
+								toolUses = append(toolUses, *step.Completed)
+							}
+							currentToolUse = nil
+						}
+					}
 					for _, tuRaw := range toolUsesRaw {
 						if tu, ok := tuRaw.(map[string]interface{}); ok {
 							toolUseID := kirocommon.GetStringValue(tu, "toolUseId")
@@ -1458,6 +1478,14 @@ func (e *KiroExecutor) parseEventStream(body io.Reader) (string, *kiroclaude.Kir
 			}
 			// Direct tool uses
 			if toolUsesRaw, ok := event["toolUses"].([]interface{}); ok {
+				if currentToolUse != nil && len(toolUsesRaw) > 0 {
+					if step, finErr := kiroclaude.FinalizeToolUseState(currentToolUse, processedIDs); finErr == nil {
+						if step.Completed != nil {
+							toolUses = append(toolUses, *step.Completed)
+						}
+						currentToolUse = nil
+					}
+				}
 				for _, tuRaw := range toolUsesRaw {
 					if tu, ok := tuRaw.(map[string]interface{}); ok {
 						toolUseID := kirocommon.GetStringValue(tu, "toolUseId")
@@ -1483,7 +1511,19 @@ func (e *KiroExecutor) parseEventStream(body io.Reader) (string, *kiroclaude.Kir
 			}
 
 		case "toolUseEvent":
-			// Handle dedicated tool use events with input buffering
+			// Handle dedicated tool use events with input buffering. If a previous
+			// tool call was left open without stop:true and its input is empty or
+			// complete JSON, finalize it before starting the new tool call.
+			if currentToolUse != nil {
+				if incomingID := kiroclaude.ToolUseEventID(event); incomingID != "" && incomingID != currentToolUse.ToolUseID {
+					if step, finErr := kiroclaude.FinalizeToolUseState(currentToolUse, processedIDs); finErr == nil {
+						if step.Completed != nil {
+							toolUses = append(toolUses, *step.Completed)
+						}
+						currentToolUse = nil
+					}
+				}
+			}
 			completedToolUses, newState, toolErr := kiroclaude.ProcessToolUseEvent(event, currentToolUse, processedIDs)
 			if toolErr != nil {
 				return "", nil, nil, usageInfo, 0, stopReason, toolErr
@@ -1524,6 +1564,14 @@ func (e *KiroExecutor) parseEventStream(body io.Reader) (string, *kiroclaude.Kir
 				stopReason = sr
 				log.Debugf("kiro: parseEventStream found stopReason in messageStopEvent: %s", stopReason)
 			}
+			if currentToolUse != nil && !processedIDs[currentToolUse.ToolUseID] {
+				if step, finErr := kiroclaude.FinalizeToolUseState(currentToolUse, processedIDs); finErr == nil {
+					if step.Completed != nil {
+						toolUses = append(toolUses, *step.Completed)
+					}
+					currentToolUse = nil
+				}
+			}
 
 		case "messageMetadataEvent", "metadataEvent":
 			// Handle message metadata events which contain token counts
@@ -1549,20 +1597,36 @@ func (e *KiroExecutor) parseEventStream(body io.Reader) (string, *kiroclaude.Kir
 					usageInfo.TotalTokens = int64(totalTokens)
 					log.Infof("kiro: parseEventStream found precise totalTokens in tokenUsage: %d", usageInfo.TotalTokens)
 				}
+				hasUncached := false
 				// uncachedInputTokens - input tokens not from cache
 				if uncachedInputTokens, ok := tokenUsage["uncachedInputTokens"].(float64); ok {
 					usageInfo.InputTokens = int64(uncachedInputTokens)
+					hasUncached = true
 					log.Infof("kiro: parseEventStream found uncachedInputTokens in tokenUsage: %d", usageInfo.InputTokens)
 				}
 				// cacheReadInputTokens - tokens read from cache
 				if cacheReadTokens, ok := tokenUsage["cacheReadInputTokens"].(float64); ok {
+					readCount := int64(cacheReadTokens)
+					usageInfo.CachedTokens = readCount
+					usageInfo.CacheReadTokens = readCount
 					// Add to input tokens if we have uncached tokens, otherwise use as input
-					if usageInfo.InputTokens > 0 {
-						usageInfo.InputTokens += int64(cacheReadTokens)
+					if hasUncached || usageInfo.InputTokens > 0 {
+						usageInfo.InputTokens += readCount
 					} else {
-						usageInfo.InputTokens = int64(cacheReadTokens)
+						usageInfo.InputTokens = readCount
 					}
-					log.Debugf("kiro: parseEventStream found cacheReadInputTokens in tokenUsage: %d", int64(cacheReadTokens))
+					log.Debugf("kiro: parseEventStream found cacheReadInputTokens in tokenUsage: %d", readCount)
+				}
+				// cacheWriteInputTokens - tokens written to cache
+				if cacheWriteTokens, ok := tokenUsage["cacheWriteInputTokens"].(float64); ok {
+					writeCount := int64(cacheWriteTokens)
+					usageInfo.CacheCreationTokens = writeCount
+					if hasUncached || usageInfo.InputTokens > 0 {
+						usageInfo.InputTokens += writeCount
+					} else {
+						usageInfo.InputTokens = writeCount
+					}
+					log.Debugf("kiro: parseEventStream found cacheWriteInputTokens in tokenUsage: %d", writeCount)
 				}
 				// contextUsagePercentage - can be used as fallback for input token estimation
 				if ctxPct, ok := tokenUsage["contextUsagePercentage"].(float64); ok {
@@ -2119,6 +2183,39 @@ func (e *KiroExecutor) streamToChannelWithAliases(ctx context.Context, body io.R
 		messageStartSent = true
 	}
 
+	finalizeOpenToolUse := func() error {
+		if currentToolUse == nil || processedIDs[currentToolUse.ToolUseID] {
+			currentToolUse = nil
+			return nil
+		}
+		step, err := kiroclaude.FinalizeToolUseState(currentToolUse, processedIDs)
+		if err != nil {
+			return err
+		}
+		if step.Fragment != "" {
+			outputForUsage.WriteString(step.Fragment)
+			inputDelta := kiroclaude.BuildClaudeInputJsonDeltaEvent(step.Fragment, contentBlockIndex)
+			sseData := sdktranslator.TranslateStream(ctx, sdktranslator.FromString("kiro"), targetFormat, model, originalReq, claudeBody, inputDelta, &translatorParam)
+			for _, chunk := range sseData {
+				if len(chunk) > 0 {
+					out <- cliproxyexecutor.StreamChunk{Payload: append(bytes.Clone(chunk), '\n', '\n')}
+				}
+			}
+		}
+		if step.Completed != nil {
+			hasToolUses = true
+			blockStop := kiroclaude.BuildClaudeContentBlockStopEvent(contentBlockIndex)
+			sseData := sdktranslator.TranslateStream(ctx, sdktranslator.FromString("kiro"), targetFormat, model, originalReq, claudeBody, blockStop, &translatorParam)
+			for _, chunk := range sseData {
+				if len(chunk) > 0 {
+					out <- cliproxyexecutor.StreamChunk{Payload: append(bytes.Clone(chunk), '\n', '\n')}
+				}
+			}
+		}
+		currentToolUse = nil
+		return nil
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -2138,11 +2235,14 @@ func (e *KiroExecutor) streamToChannelWithAliases(ctx context.Context, body io.R
 		}
 		if msg == nil {
 			// Normal end of stream (EOF)
-			// An incomplete tool event is a malformed upstream response. Do not
-			// repair or invent arguments that the model did not send.
+			// Finalize an open tool call when its buffered arguments are empty
+			// (zero-argument tool call) or already form a complete JSON object;
+			// fail if the JSON was genuinely truncated mid-call.
 			if currentToolUse != nil && !processedIDs[currentToolUse.ToolUseID] {
-				out <- cliproxyexecutor.StreamChunk{Err: streamStatusError("upstream ended", fmt.Sprintf("upstream ended during tool call %q", aliases.original(currentToolUse.Name)))}
-				return false
+				if err := finalizeOpenToolUse(); err != nil {
+					out <- cliproxyexecutor.StreamChunk{Err: streamStatusError("upstream ended", fmt.Sprintf("upstream ended during tool call %q", aliases.original(currentToolUse.Name)))}
+					return false
+				}
 			}
 
 			break
@@ -2226,6 +2326,9 @@ func (e *KiroExecutor) streamToChannelWithAliases(ctx context.Context, body io.R
 			if sr := kirocommon.GetString(event, "stopReason"); sr != "" {
 				upstreamStopReason = sr
 				log.Debugf("kiro: streamToChannel found stopReason in messageStopEvent: %s", upstreamStopReason)
+			}
+			if currentToolUse != nil && !processedIDs[currentToolUse.ToolUseID] {
+				_ = finalizeOpenToolUse()
 			}
 
 		case "meteringEvent":
@@ -2356,6 +2459,9 @@ func (e *KiroExecutor) streamToChannelWithAliases(ctx context.Context, body io.R
 				}
 			}
 
+			if currentToolUse != nil && contentDelta == "" && len(toolUses) > 0 {
+				_ = finalizeOpenToolUse()
+			}
 			// Text inside an open tool_use block would corrupt the block indexes.
 			if currentToolUse != nil && (contentDelta != "" || len(toolUses) > 0) {
 				out <- cliproxyexecutor.StreamChunk{Err: streamProtocolError(fmt.Sprintf("text arrived during tool call %q", aliases.original(currentToolUse.Name)))}
@@ -2593,6 +2699,11 @@ func (e *KiroExecutor) streamToChannelWithAliases(ctx context.Context, body io.R
 			}
 
 		case "toolUseEvent":
+			if currentToolUse != nil {
+				if incomingID := kiroclaude.ToolUseEventID(event); incomingID != "" && incomingID != currentToolUse.ToolUseID {
+					_ = finalizeOpenToolUse()
+				}
+			}
 			step, newState, toolErr := kiroclaude.StreamToolUseEvent(event, currentToolUse, processedIDs)
 			if toolErr != nil {
 				out <- cliproxyexecutor.StreamChunk{Err: streamProtocolError(toolErr.Error())}
@@ -2699,22 +2810,39 @@ func (e *KiroExecutor) streamToChannelWithAliases(ctx context.Context, body io.R
 					totalUsage.TotalTokens = int64(totalTokens)
 					log.Infof("kiro: streamToChannel found precise totalTokens in tokenUsage: %d", totalUsage.TotalTokens)
 				}
+				hasUncached := false
 				// uncachedInputTokens - input tokens not from cache
 				if uncachedInputTokens, ok := tokenUsage["uncachedInputTokens"].(float64); ok {
 					totalUsage.InputTokens = int64(uncachedInputTokens)
+					hasUncached = true
 					hasUpstreamUsage = true
 					log.Infof("kiro: streamToChannel found uncachedInputTokens in tokenUsage: %d", totalUsage.InputTokens)
 				}
 				// cacheReadInputTokens - tokens read from cache
 				if cacheReadTokens, ok := tokenUsage["cacheReadInputTokens"].(float64); ok {
+					readCount := int64(cacheReadTokens)
+					totalUsage.CachedTokens = readCount
+					totalUsage.CacheReadTokens = readCount
 					// Add to input tokens if we have uncached tokens, otherwise use as input
-					if totalUsage.InputTokens > 0 {
-						totalUsage.InputTokens += int64(cacheReadTokens)
+					if hasUncached || totalUsage.InputTokens > 0 {
+						totalUsage.InputTokens += readCount
 					} else {
-						totalUsage.InputTokens = int64(cacheReadTokens)
+						totalUsage.InputTokens = readCount
 					}
 					hasUpstreamUsage = true
-					log.Debugf("kiro: streamToChannel found cacheReadInputTokens in tokenUsage: %d", int64(cacheReadTokens))
+					log.Debugf("kiro: streamToChannel found cacheReadInputTokens in tokenUsage: %d", readCount)
+				}
+				// cacheWriteInputTokens - tokens written to cache
+				if cacheWriteTokens, ok := tokenUsage["cacheWriteInputTokens"].(float64); ok {
+					writeCount := int64(cacheWriteTokens)
+					totalUsage.CacheCreationTokens = writeCount
+					if hasUncached || totalUsage.InputTokens > 0 {
+						totalUsage.InputTokens += writeCount
+					} else {
+						totalUsage.InputTokens = writeCount
+					}
+					hasUpstreamUsage = true
+					log.Debugf("kiro: streamToChannel found cacheWriteInputTokens in tokenUsage: %d", writeCount)
 				}
 				// contextUsagePercentage - can be used as fallback for input token estimation
 				if ctxPct, ok := tokenUsage["contextUsagePercentage"].(float64); ok {

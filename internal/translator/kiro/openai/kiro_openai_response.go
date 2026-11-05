@@ -81,11 +81,7 @@ func BuildOpenAIResponseWithReasoning(content, reasoningContent string, toolUses
 				"finish_reason": finishReason,
 			},
 		},
-		"usage": map[string]interface{}{
-			"prompt_tokens":     usageInfo.InputTokens,
-			"completion_tokens": usageInfo.OutputTokens,
-			"total_tokens":      usageInfo.InputTokens + usageInfo.OutputTokens,
-		},
+		"usage": buildOpenAIUsageMap(usageInfo),
 	}
 
 	result, _ := json.Marshal(response)
