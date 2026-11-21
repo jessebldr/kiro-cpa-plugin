@@ -1299,6 +1299,14 @@ var authRefreshCredential = refreshKiroCredential
 // and persists, so the listing stays current without touching registration.
 // A failed listing keeps the previous catalogue and never fails the refresh.
 func relistModels(authID string, token *kiroauth.KiroTokenData) {
+	// A parked credential (monthly limit, suspension) answers the listing with 403
+	// on every refresh. Its stored catalogue is already enough to serve
+	// registration, so the call is skipped until the credential is back.
+	if _, _, parked := kiroauth.GetGlobalRateLimiter().TokenUnavailable(authID); parked {
+		if _, stored := storedModelCatalog(token); stored {
+			return
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), modelListTimeout)
 	defer cancel()
 	models, err := listAvailableModels(ctx, token)

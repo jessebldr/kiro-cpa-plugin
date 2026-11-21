@@ -283,8 +283,17 @@ func TestMonthlyLimitAndSuspensionParkTheCredentialLocally(t *testing.T) {
 			auth := builderIDAuth(strings.ReplaceAll(test.name, " ", "-"))
 			request, options := executorTestRequest()
 
-			if _, err := NewKiroExecutor(nil).Execute(t.Context(), auth, request, options); err == nil {
+			started := time.Now()
+			_, rejection := NewKiroExecutor(nil).Execute(t.Context(), auth, request, options)
+			if rejection == nil {
 				t.Fatal("upstream rejection returned no error")
+			}
+			if test.status == http.StatusPaymentRequired {
+				// A monthly limit is parked until the UTC month rolls over, not the next day.
+				got := rejection.(interface{ RetryAfter() *time.Duration }).RetryAfter()
+				if got == nil || *got > kiroauth.UntilNextUTCMonth(started) || *got < kiroauth.UntilNextUTCMonth(time.Now())-time.Second {
+					t.Fatalf("402 parked for %v, want until the next UTC month (%v)", got, kiroauth.UntilNextUTCMonth(started))
+				}
 			}
 			_, err := NewKiroExecutor(nil).ExecuteStream(t.Context(), auth, request, options)
 			statusErr, ok := err.(interface{ StatusCode() int })

@@ -207,10 +207,24 @@ func (rl *RateLimiter) TokenUnavailable(tokenKey string) (reason string, retryAf
 	return state.unavailableReason, retryAfter, true
 }
 
-// UntilNextUTCDay is the window applied after a monthly-limit response: the
-// credential is retried once the UTC day rolls over, the clock AWS quotas use,
-// rather than every few seconds through the host's ladder.
-func UntilNextUTCDay() time.Duration {
-	now := time.Now().UTC()
-	return time.Until(time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC))
+// ClearUnavailable puts the credential back into rotation, but only while it
+// is parked for the given reason, so a live usage reading that shows quota
+// again never lifts an unrelated suspension.
+func (rl *RateLimiter) ClearUnavailable(tokenKey, reason string) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	state, ok := rl.states[tokenKey]
+	if !ok || state.unavailableReason != reason {
+		return
+	}
+	state.unavailableUntil = time.Time{}
+	state.unavailableReason = ""
+}
+
+// UntilNextUTCMonth is the window applied after a monthly-limit response when
+// Kiro gave no reset time: the plan quota renews on the first of the next UTC
+// month, so retrying the credential earlier only collects another 402.
+func UntilNextUTCMonth(now time.Time) time.Duration {
+	now = now.UTC()
+	return time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, time.UTC).Sub(now)
 }

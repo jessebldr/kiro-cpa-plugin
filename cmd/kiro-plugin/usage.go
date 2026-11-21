@@ -816,6 +816,8 @@ func loadUsageCredentialView(ctx context.Context, credential usageCredential, fo
 		account.StateClass = "error"
 		account.Error = publicUsageError(err)
 		account.ErrorKey = publicUsageErrorKey(err)
+	} else {
+		syncMonthlyLimitParking(credential, account)
 	}
 	storeCachedUsage(credential.cacheKey, account)
 	return account
