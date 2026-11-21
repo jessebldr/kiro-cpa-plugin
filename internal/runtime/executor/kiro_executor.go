@@ -879,7 +879,7 @@ func (e *KiroExecutor) executeWithRetry(ctx context.Context, auth *cliproxyauth.
 
 			log.Warnf("kiro: received 402 (monthly limit). Upstream body: %s", summarizeErrorBody(httpResp.Header.Get("Content-Type"), respBody))
 
-			remaining := kiroauth.UntilNextUTCDay()
+			remaining := kiroauth.UntilNextUTCMonth(time.Now())
 			markUnavailable(auth, tokenKey, kiroauth.ReasonMonthlyLimit, remaining)
 			return resp, statusErr{code: http.StatusPaymentRequired, msg: summarizeErrorBody(httpResp.Header.Get("Content-Type"), respBody), retryAfter: &remaining}
 		}
@@ -1136,7 +1136,7 @@ func (e *KiroExecutor) executeStreamWithRetry(ctx context.Context, auth *cliprox
 
 			log.Warnf("kiro: stream received 402 (monthly limit). Upstream body: %s", summarizeErrorBody(httpResp.Header.Get("Content-Type"), respBody))
 
-			remaining := kiroauth.UntilNextUTCDay()
+			remaining := kiroauth.UntilNextUTCMonth(time.Now())
 			markUnavailable(auth, tokenKey, kiroauth.ReasonMonthlyLimit, remaining)
 			return nil, statusErr{code: http.StatusPaymentRequired, msg: summarizeErrorBody(httpResp.Header.Get("Content-Type"), respBody), retryAfter: &remaining}
 		}

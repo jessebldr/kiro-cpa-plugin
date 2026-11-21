@@ -220,3 +220,36 @@ func TestExpiredWaiterCancellationKeepsLaterImmediateGrantGap(t *testing.T) {
 		t.Fatalf("cancellation erased the immediate grant's gap: next slot %v, want %v", state.nextSlot, grantedNext)
 	}
 }
+
+func TestUntilNextUTCMonthRollsToTheFirstOfNextMonth(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		now  time.Time
+		want time.Time
+	}{
+		{"mid month", time.Date(2026, 11, 21, 13, 30, 0, 0, time.UTC), time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)},
+		{"december rolls into january", time.Date(2026, 12, 31, 23, 59, 0, 0, time.UTC), time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)},
+		{"first instant of a month", time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)},
+		{"non-UTC clock is read in UTC", time.Date(2026, 12, 31, 20, 0, 0, 0, time.FixedZone("UTC-5", -5*3600)), time.Date(2027, 2, 1, 0, 0, 0, 0, time.UTC)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := UntilNextUTCMonth(test.now); test.now.Add(got).UTC() != test.want {
+				t.Fatalf("UntilNextUTCMonth(%v) lands on %v, want %v", test.now, test.now.Add(got).UTC(), test.want)
+			}
+		})
+	}
+}
+
+func TestClearUnavailableOnlyLiftsTheNamedReason(t *testing.T) {
+	limiter := newTestLimiter(time.Millisecond, time.Millisecond, time.Hour)
+	limiter.MarkUnavailable("a", ReasonMonthlyLimit, time.Hour)
+	limiter.ClearUnavailable("a", ReasonSuspended)
+	if _, _, unavailable := limiter.TokenUnavailable("a"); !unavailable {
+		t.Fatal("clearing another reason put the credential back into rotation")
+	}
+	limiter.ClearUnavailable("a", ReasonMonthlyLimit)
+	if _, _, unavailable := limiter.TokenUnavailable("a"); unavailable {
+		t.Fatal("credential stayed parked after its reason was cleared")
+	}
+	limiter.ClearUnavailable("unknown", ReasonMonthlyLimit)
+}
